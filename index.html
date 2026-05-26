@@ -475,9 +475,11 @@ function loadLocal(){
   try{
     return {
       pedidos: JSON.parse(localStorage.getItem('nx2_ped')||'null') || [],
-      ordenes: JSON.parse(localStorage.getItem('nx2_oc')||'null') || []
+      ordenes: JSON.parse(localStorage.getItem('nx2_oc')||'null') || [],
+      claves: JSON.parse(localStorage.getItem('nx2_users')||'null') || null,
+      pin: localStorage.getItem('nx2_pin')||''
     };
-  }catch(e){ return {pedidos:[],ordenes:[]}; }
+  }catch(e){ return {pedidos:[],ordenes:[],claves:null,pin:''}; }
 }
 var DB = loadLocal();
 
@@ -485,6 +487,8 @@ function saveLocal(){
   try{
     localStorage.setItem('nx2_ped', JSON.stringify(DB.pedidos||[]));
     localStorage.setItem('nx2_oc', JSON.stringify(DB.ordenes||[]));
+    if(DB.claves) localStorage.setItem('nx2_users', JSON.stringify(DB.claves));
+    if(DB.pin!=null) localStorage.setItem('nx2_pin', DB.pin);
   }catch(e){ if(!saveLocal._a){saveLocal._a=true;console.warn('No se pudo guardar local:',e);} }
 }
 
@@ -497,6 +501,8 @@ function saveDB(){
       FB.db.collection('portal').doc('datos').set({
         pedidos: DB.pedidos||[],
         ordenes: DB.ordenes||[],
+        claves: DB.claves||null,
+        pin: DB.pin||'',
         _updated: Date.now()
       }).then(function(){ FB.escribiendo=false; })
         .catch(function(e){ FB.escribiendo=false; console.warn('Error guardando en Firebase:',e); toast('Sin conexión: cambios guardados local'); });
@@ -520,12 +526,14 @@ function initFirebase(){
         var d=doc.data();
         DB.pedidos = d.pedidos||[];
         DB.ordenes = d.ordenes||[];
+        if(d.claves) DB.claves = d.claves;
+        if(d.pin!=null) DB.pin = d.pin;
         saveLocal();
         // refrescar la vista actual
         rerenderActual();
       }else{
         // primer uso: subir lo que haya local (o vacío)
-        ref.set({pedidos:DB.pedidos||[], ordenes:DB.ordenes||[], _updated:Date.now()});
+        ref.set({pedidos:DB.pedidos||[], ordenes:DB.ordenes||[], claves:DB.claves||null, pin:DB.pin||'', _updated:Date.now()});
       }
     }, function(err){
       console.warn('Error de conexión Firebase:',err);
@@ -751,8 +759,8 @@ function delPedido(id){
 }
 
 // ===== AUTORIZACIÓN DEL GERENTE =====
-function getPin(){ try{return localStorage.getItem('nx2_pin')||'';}catch(e){return DB._pin||'';} }
-function setPin(v){ try{localStorage.setItem('nx2_pin',v);}catch(e){DB._pin=v;} }
+function getPin(){ return DB.pin||''; }
+function setPin(v){ DB.pin=v; saveDB(); }
 
 function openAutorizar(id){
   if(!puede('autorizar')){toast('Solo Gerencia puede autorizar');return;}
@@ -1223,12 +1231,13 @@ var sesion=null; // usuario actual
 
 // Claves iniciales fijas. Se pueden cambiar desde Datos (quedan guardadas en el navegador).
 var CLAVES_DEFAULT={Comercialnexus:'comercial2026', Comprasnexus:'compras2026', Gerencianexus:'gerencia2026'};
-function getClaves(){ try{var s=JSON.parse(localStorage.getItem('nx2_users')||'null'); return s||CLAVES_DEFAULT;}catch(e){return CLAVES_DEFAULT;} }
-function setClaves(obj){ try{localStorage.setItem('nx2_users',JSON.stringify(obj));}catch(e){DB._users=obj;} }
+function getClaves(){ return DB.claves || CLAVES_DEFAULT; }
+function setClaves(obj){ DB.claves=obj; saveDB(); }
 function puede(accion){ return !!(sesion && ROLES[sesion] && ROLES[sesion].puede[accion]); }
 
 function cambiarClaves(){
-  var claves=getClaves()||{};
+  var base=getClaves();
+  var claves={Comercialnexus:base.Comercialnexus, Comprasnexus:base.Comprasnexus, Gerencianexus:base.Gerencianexus};
   var c=el('chg-comercial').value, co=el('chg-compras').value, g=el('chg-gerencia').value;
   if(c){ if(c.length<4){toast('La clave de Comercial es muy corta');return;} claves.Comercialnexus=c; }
   if(co){ if(co.length<4){toast('La clave de Compras es muy corta');return;} claves.Comprasnexus=co; }
