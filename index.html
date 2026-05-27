@@ -362,6 +362,21 @@ textarea{resize:vertical;min-height:54px}
   </div>
 </div>
 
+<!-- ========== MODAL AVISO WHATSAPP ========== -->
+<div class="mo" id="mo-wa">
+  <div class="md" style="width:440px;text-align:center">
+    <div style="font-size:42px;margin:6px 0 10px;color:#25D366">✓</div>
+    <div class="mt2" id="wa-titulo" style="margin-bottom:6px">Pedido creado</div>
+    <div style="font-size:13px;color:var(--txt2);margin-bottom:18px">¿Querés avisar por WhatsApp al grupo?</div>
+    <div style="background:var(--surf2);border:1px solid var(--brd);border-radius:8px;padding:10px;text-align:left;font-size:12.5px;color:var(--txt2);margin-bottom:18px;white-space:pre-wrap;font-family:monospace" id="wa-preview"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bp" style="flex:1;background:#25D366;border-color:#25D366" onclick="enviarWA()">Avisar por WhatsApp</button>
+      <button class="btn bo" onclick="closeMo('mo-wa')">Ahora no</button>
+    </div>
+    <div style="font-size:11px;color:var(--txt3);margin-top:10px">Se abre WhatsApp con el mensaje listo. Elegí el grupo y enviá.</div>
+  </div>
+</div>
+
 <!-- ========== MODAL AUTORIZAR PEDIDO ========== -->
 <div class="mo" id="mo-aut">
   <div class="md" style="width:640px">
@@ -736,12 +751,51 @@ function savePedido(){
     }
   }else{
     var n=nextPedidoNum();
-    DB.pedidos.unshift({id:uid(), num:n, pide:el('p-pide').value.trim(), urgencia:el('p-urg').value,
+    var nuevoPed={id:uid(), num:n, pide:el('p-pide').value.trim(), urgencia:el('p-urg').value,
       fecha:el('p-fecha').value, notas:el('p-notas').value.trim(), creado:tod(),
-      autorizado:false, autPor:'', autFecha:'', items:items});
+      autorizado:false, autPor:'', autFecha:'', items:items};
+    DB.pedidos.unshift(nuevoPed);
     toast('Pedido '+n+' creado · pendiente de autorización');
+    saveDB(); closeMo('mo-ped'); renderPedidos();
+    abrirAvisoWA(nuevoPed);
+    return;
   }
   saveDB(); closeMo('mo-ped'); renderPedidos();
+}
+
+// ===== AVISO POR WHATSAPP =====
+function armarMensajeWA(p){
+  var lineas=[];
+  lineas.push('🛒 Nuevo pedido en el portal · '+p.num);
+  if(p.pide) lineas.push('Pide: '+p.pide);
+  lineas.push('Urgencia: '+p.urgencia);
+  if(p.fecha) lineas.push('Necesario para: '+fmtD(p.fecha));
+  lineas.push('');
+  lineas.push('Ítems ('+(p.items||[]).length+'):');
+  (p.items||[]).forEach(function(i){
+    var l='• '+i.codigo;
+    if(i.marca)l+=' '+i.marca;
+    l+=' · '+i.cant+' '+i.unidad;
+    if(i.destino==='cliente'&&i.cliente)l+=' (cliente: '+i.cliente+')';
+    if(i.sucursal)l+=' · '+i.sucursal;
+    lineas.push(l);
+  });
+  if(p.notas){ lineas.push(''); lineas.push('Notas: '+p.notas); }
+  return lineas.join('\n');
+}
+function abrirAvisoWA(p){
+  var msg=armarMensajeWA(p);
+  el('wa-titulo').textContent='Pedido '+p.num+' creado';
+  el('wa-preview').textContent=msg;
+  // guardar el mensaje para usarlo al apretar Enviar
+  el('mo-wa').setAttribute('data-msg', encodeURIComponent(msg));
+  openMo('mo-wa');
+}
+function enviarWA(){
+  var msg=el('mo-wa').getAttribute('data-msg')||'';
+  // wa.me sin número abre el selector de contactos (sirve para elegir el grupo)
+  window.open('https://wa.me/?text='+msg, '_blank');
+  closeMo('mo-wa');
 }
 function nextPedidoNum(){
   var max=0;
