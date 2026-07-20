@@ -599,6 +599,51 @@ textarea{resize:vertical;min-height:54px}
   </div>
 </div>
 
+<!-- ========== MODAL EDITAR OC ========== -->
+<div class="mo" id="mo-edit-oc">
+  <div class="md mdl">
+    <div class="mh"><div class="mt2">Editar orden de compra</div><button class="mc2" onclick="closeMo('mo-edit-oc')">&times;</button></div>
+    <div id="edit-oc-info" style="margin-bottom:14px;padding:10px 12px;background:var(--surf2);border-radius:var(--r);font-size:13px"></div>
+    <div class="r2">
+      <div class="field"><label>N° de OC</label><input type="text" id="edit-oc-num"></div>
+      <div class="field"><label>Fecha</label><input type="date" id="edit-oc-fecha"></div>
+    </div>
+    <div class="field"><label>Proveedor <span class="muted" style="text-transform:none;font-weight:400">(al cambiar, se actualiza también en los ítems)</span></label><input type="text" id="edit-oc-prov" list="prov-list"></div>
+    <div class="field"><label>Notas <span class="muted" style="text-transform:none;font-weight:400">(opcional)</span></label><textarea id="edit-oc-notas"></textarea></div>
+
+    <div class="card-t" style="margin:16px 0 6px">Ítems de la OC</div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:8px">"Quitar" saca el ítem de la OC y lo vuelve a "Pendiente". Si tenía recepciones parciales, se conservan en un histórico aparte pero se resetean del ítem.</div>
+    <div id="edit-oc-items" style="border:1px solid var(--brd);border-radius:var(--r);margin-bottom:12px"></div>
+
+    <div class="card-t" style="margin:16px 0 6px">Agregar ítems del mismo proveedor</div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:8px">Ítems pendientes que hoy están en "Por comprar" del proveedor actual. Marcá los que querés sumar a esta OC.</div>
+    <div id="edit-oc-agregar" style="border:1px solid var(--brd);border-radius:var(--r);max-height:220px;overflow-y:auto"></div>
+
+    <input type="hidden" id="edit-oc-id">
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn bp" style="flex:1" onclick="guardarEditarOC()">Guardar cambios</button>
+      <button class="btn bo" onclick="closeMo('mo-edit-oc')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MODAL ELIMINAR OC ========== -->
+<div class="mo" id="mo-del-oc">
+  <div class="md mdl">
+    <div class="mh"><div class="mt2" style="color:var(--red)">Eliminar orden de compra</div><button class="mc2" onclick="closeMo('mo-del-oc')">&times;</button></div>
+    <div id="del-oc-info" style="margin-bottom:14px;padding:10px 12px;background:#fef2f2;border-left:4px solid var(--red);border-radius:var(--r);font-size:13px;color:#991b1b"></div>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">Elegí qué hacer con cada ítem antes de eliminar la OC:</div>
+    <div id="del-oc-items" style="border:1px solid var(--brd);border-radius:var(--r);margin-bottom:12px"></div>
+    <div class="muted" style="font-size:11.5px;margin-bottom:12px">Las recepciones parciales registradas se guardan en un histórico aparte por si necesitás consultarlas después.</div>
+
+    <input type="hidden" id="del-oc-id">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn bp" style="flex:1;background:var(--red);border-color:var(--red)" onclick="confirmarEliminarOC()">Eliminar OC definitivamente</button>
+      <button class="btn bo" onclick="closeMo('mo-del-oc')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- SDK de Firebase (se cargan desde internet) -->
@@ -659,6 +704,8 @@ function saveDB(){
         ordenes: DB.ordenes||[],
         claves: DB.claves||null,
         pin: DB.pin||'',
+        ocsHistoricoRecepciones: DB.ocsHistoricoRecepciones||[],
+        ocsEliminadas: DB.ocsEliminadas||[],
         _updated: Date.now()
       }).then(function(){ FB.escribiendo=false; })
         .catch(function(e){ FB.escribiendo=false; console.warn('Error guardando en Firebase:',e); toast('Sin conexión: cambios guardados local'); });
@@ -684,12 +731,14 @@ function initFirebase(){
         DB.ordenes = d.ordenes||[];
         if(d.claves) DB.claves = d.claves;
         if(d.pin!=null) DB.pin = d.pin;
+        DB.ocsHistoricoRecepciones = d.ocsHistoricoRecepciones||[];
+        DB.ocsEliminadas = d.ocsEliminadas||[];
         saveLocal();
         // refrescar la vista actual
         rerenderActual();
       }else{
         // primer uso: subir lo que haya local (o vacío)
-        ref.set({pedidos:DB.pedidos||[], ordenes:DB.ordenes||[], claves:DB.claves||null, pin:DB.pin||'', _updated:Date.now()});
+        ref.set({pedidos:DB.pedidos||[], ordenes:DB.ordenes||[], claves:DB.claves||null, pin:DB.pin||'', ocsHistoricoRecepciones:DB.ocsHistoricoRecepciones||[], ocsEliminadas:DB.ocsEliminadas||[], _updated:Date.now()});
       }
     }, function(err){
       console.warn('Error de conexión Firebase:',err);
@@ -1486,8 +1535,10 @@ function renderOrdenes(){
       '<div class="prov-group-h"><span><span class="codigo oc" style="background:rgba(255,255,255,.25);color:#fff">'+esc(o.num)+'</span> &nbsp;'+esc(o.proveedor)+'</span>'+
         '<span class="cnt">'+estPill(o.estado)+' · '+its.length+' ítems · OC del '+fmtD(o.fecha)+'</span></div>'+
       '<div class="tw"><table><thead><tr><th>Código</th><th>Producto</th><th>Pedido</th><th>Recibido</th><th>Resta</th><th>Destino</th><th>Sucursal</th><th>Pedido</th><th>Estado</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-      '<div style="padding:10px 14px;display:flex;gap:8px;justify-content:flex-end">'+
+      '<div style="padding:10px 14px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">'+
         '<button class="btn bp bsm" onclick="openSeguimiento(\''+o.id+'\')"'+(puede('comprar')?'':' disabled title="No tenés permiso para registrar recepciones"')+'>Registrar recepción / estado</button>'+
+        '<button class="btn bo bsm" onclick="openEditarOC(\''+o.id+'\')"'+(puede('comprar')?'':' disabled title="No tenés permiso"')+'>✏ Editar OC</button>'+
+        '<button class="btn bgh bsm" onclick="openEliminarOC(\''+o.id+'\')"'+(puede('comprar')?'':' disabled title="No tenés permiso"')+' style="color:var(--red);border-color:var(--red)">🗑 Eliminar</button>'+
       '</div>';
     wrap.appendChild(box);
   });
@@ -1570,6 +1621,268 @@ function guardarSeguimiento(){
   }
   saveDB(); closeMo('mo-seg'); renderOrdenes(); renderPedidos();
   toast(algoLlego?('Recepción registrada · OC '+o.estado.toLowerCase()):('Estado: '+o.estado));
+}
+
+// ==================== EDITAR OC ====================
+function openEditarOC(ocId){
+  if(!puede('comprar')){toast('No tenés permiso para editar OC');return;}
+  var o=DB.ordenes.find(function(x){return x.id===ocId;}); if(!o)return;
+  el('edit-oc-id').value=ocId;
+  el('edit-oc-num').value=o.num||'';
+  el('edit-oc-fecha').value=o.fecha||'';
+  el('edit-oc-prov').value=o.proveedor||'';
+  el('edit-oc-notas').value=o.notas||'';
+  refreshProvList();
+  // info arriba
+  var its=ocItems(o);
+  var conRec=its.filter(function(r){return recibidoDe(r.item)>0;}).length;
+  el('edit-oc-info').innerHTML='Estado actual: <b>'+esc(o.estado||'')+'</b> · '+its.length+' ítems'+
+    (conRec?' · <span style="color:var(--amber)"><b>'+conRec+'</b> con recepciones parciales</span>':'');
+  // renderizar lista actual de ítems
+  renderEditOCItems(o);
+  // renderizar lista de ítems pendientes del mismo proveedor
+  renderEditOCAgregar(o);
+  openMo('mo-edit-oc');
+}
+function renderEditOCItems(o){
+  var box=el('edit-oc-items');
+  var its=ocItems(o);
+  if(!its.length){box.innerHTML='<div class="muted" style="padding:14px;text-align:center">La OC no tiene ítems.</div>';return;}
+  box.innerHTML=its.map(function(r){
+    var it=r.item;
+    var rec=recibidoDe(it), resta=restaDe(it);
+    var recTxt=rec>0?'<span style="color:var(--amber);font-size:11px;font-weight:600">Recibido: '+rec+'/'+it.cant+'</span> ':'';
+    return '<div style="padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:13px"><span class="codigo">'+esc(it.codigo)+'</span> '+esc(it.marca||'')+' · '+it.cant+' '+esc(it.unidad||'un')+'</div>'+
+        '<div class="muted" style="font-size:11px">Pedido '+esc(r.ped.num||'')+' · '+recTxt+'</div>'+
+      '</div>'+
+      '<button class="btn bo bsm" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="quitarItemDeOCLocal(\''+r.ped.id+'\',\''+it.id+'\')">Quitar</button>'+
+      '</div>';
+  }).join('');
+}
+// Se guarda en memoria la lista de items a quitar/agregar; se aplica al guardar
+var editOCQuitar={}; // itemKey -> true
+var editOCAgregar={}; // itemKey -> true
+function quitarItemDeOCLocal(pedId,itemId){
+  var k=pedId+'::'+itemId;
+  editOCQuitar[k]=true;
+  // remover del DOM
+  var o=DB.ordenes.find(function(x){return x.id===el('edit-oc-id').value;});
+  if(o){
+    // crear una vista temporal sin el item quitado
+    var boxItems=el('edit-oc-items');
+    var lineas=o.lineas.filter(function(l){return !editOCQuitar[l.pedidoId+'::'+l.itemId];});
+    var its=lineas.map(function(l){
+      var ped=DB.pedidos.find(function(p){return p.id===l.pedidoId;});
+      var item=ped?(ped.items||[]).find(function(i){return i.id===l.itemId;}):null;
+      return ped&&item?{ped:ped,item:item}:null;
+    }).filter(Boolean);
+    if(!its.length){boxItems.innerHTML='<div class="muted" style="padding:14px;text-align:center">La OC quedaría sin ítems.</div>';return;}
+    boxItems.innerHTML=its.map(function(r){
+      var it=r.item; var rec=recibidoDe(it);
+      var recTxt=rec>0?'<span style="color:var(--amber);font-size:11px;font-weight:600">Recibido: '+rec+'/'+it.cant+'</span> ':'';
+      return '<div style="padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center;gap:8px">'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-size:13px"><span class="codigo">'+esc(it.codigo)+'</span> '+esc(it.marca||'')+' · '+it.cant+' '+esc(it.unidad||'un')+'</div>'+
+          '<div class="muted" style="font-size:11px">Pedido '+esc(r.ped.num||'')+' · '+recTxt+'</div>'+
+        '</div>'+
+        '<button class="btn bo bsm" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="quitarItemDeOCLocal(\''+r.ped.id+'\',\''+it.id+'\')">Quitar</button>'+
+        '</div>';
+    }).join('');
+  }
+}
+function renderEditOCAgregar(o){
+  var box=el('edit-oc-agregar');
+  var provActual=el('edit-oc-prov').value.trim() || o.proveedor;
+  // ítems Pendientes con ese proveedor y de pedidos autorizados
+  var candidatos=allItems().filter(function(r){
+    return r.item.estado==='Pendiente' && r.ped.autorizado && !r.item.enEspera &&
+      (r.item.proveedor||'')===provActual;
+  });
+  if(!candidatos.length){
+    box.innerHTML='<div class="muted" style="padding:14px;text-align:center;font-size:12px">No hay más ítems pendientes de este proveedor.</div>';
+    return;
+  }
+  box.innerHTML=candidatos.map(function(r){
+    var it=r.item, k=r.ped.id+'::'+it.id;
+    var checked=editOCAgregar[k]?'checked':'';
+    return '<label style="padding:8px 12px;border-bottom:1px solid var(--brd);display:flex;align-items:center;gap:10px;cursor:pointer">'+
+      '<input type="checkbox" class="chk" '+checked+' onchange="toggleEditOCAgregar(\''+r.ped.id+'\',\''+it.id+'\',this.checked)">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:13px"><span class="codigo">'+esc(it.codigo)+'</span> '+esc(it.marca||'')+' · '+it.cant+' '+esc(it.unidad||'un')+'</div>'+
+        '<div class="muted" style="font-size:11px">Pedido '+esc(r.ped.num||'')+'</div>'+
+      '</div>'+
+    '</label>';
+  }).join('');
+}
+function toggleEditOCAgregar(pedId,itemId,checked){
+  var k=pedId+'::'+itemId;
+  if(checked) editOCAgregar[k]=true; else delete editOCAgregar[k];
+}
+// Cuando cambia el proveedor en el modal, refresca la lista de "agregar"
+document.addEventListener('input', function(e){
+  if(e.target && e.target.id==='edit-oc-prov'){
+    var o=DB.ordenes.find(function(x){return x.id===el('edit-oc-id').value;});
+    if(o) renderEditOCAgregar(o);
+  }
+});
+function guardarEditarOC(){
+  if(!puede('comprar')){toast('No tenés permiso');return;}
+  var o=DB.ordenes.find(function(x){return x.id===el('edit-oc-id').value;}); if(!o)return;
+  var nuevoProv=(el('edit-oc-prov').value||'').trim();
+  if(!nuevoProv){toast('El proveedor no puede estar vacío');return;}
+  var proveedorCambio = nuevoProv !== o.proveedor;
+
+  // ==== Preservar historial de recepciones parciales si se quitan ítems ====
+  DB.ocsHistoricoRecepciones = DB.ocsHistoricoRecepciones || [];
+
+  // ==== 1) QUITAR ÍTEMS marcados ====
+  Object.keys(editOCQuitar).forEach(function(k){
+    var parts=k.split('::'), pedId=parts[0], itemId=parts[1];
+    var ped=DB.pedidos.find(function(p){return p.id===pedId;}); if(!ped)return;
+    var it=(ped.items||[]).find(function(i){return i.id===itemId;}); if(!it)return;
+    // guardar historial si tenía recepciones
+    if((it.recepciones||[]).length){
+      DB.ocsHistoricoRecepciones.push({ocNum:o.num,ocId:o.id,ped:ped.num,codigo:it.codigo,recepciones:it.recepciones.slice(),cantidadOriginal:it.cant,fecha:tod(),motivo:'Ítem quitado en edición de OC'});
+    }
+    // volver el item a Pendiente
+    it.estado='Pendiente';
+    delete it.ocId;
+    it.recibido=0;
+    it.recepciones=[];
+    // sacarlo de las lineas de la OC
+    o.lineas=(o.lineas||[]).filter(function(l){return !(l.pedidoId===pedId && l.itemId===itemId);});
+  });
+
+  // ==== 2) AGREGAR ÍTEMS marcados ====
+  Object.keys(editOCAgregar).forEach(function(k){
+    var parts=k.split('::'), pedId=parts[0], itemId=parts[1];
+    var ped=DB.pedidos.find(function(p){return p.id===pedId;}); if(!ped)return;
+    var it=(ped.items||[]).find(function(i){return i.id===itemId;}); if(!it)return;
+    if(it.estado!=='Pendiente') return; // ya no está disponible
+    it.estado='OC emitida';
+    it.ocId=o.id;
+    o.lineas=o.lineas||[];
+    o.lineas.push({pedidoId:pedId,itemId:itemId});
+  });
+
+  // ==== 3) Actualizar cabecera ====
+  var numNuevo=(el('edit-oc-num').value||'').trim();
+  if(numNuevo) o.num=numNuevo;
+  o.fecha=el('edit-oc-fecha').value||o.fecha;
+  o.notas=el('edit-oc-notas').value.trim();
+
+  // ==== 4) Si cambió proveedor, actualizar también los ítems ====
+  if(proveedorCambio){
+    o.proveedor=nuevoProv;
+    ocItems(o).forEach(function(r){ r.item.proveedor=nuevoProv; });
+  }
+
+  // ==== 5) Recalcular estado de la OC ====
+  var its=ocItems(o);
+  if(!its.length){
+    // OC vacía, la eliminamos
+    DB.ordenes=DB.ordenes.filter(function(x){return x.id!==o.id;});
+    saveDB();
+    closeMo('mo-edit-oc');
+    editOCQuitar={}; editOCAgregar={};
+    renderOrdenes(); renderPedidos();
+    toast('OC eliminada (quedó sin ítems)');
+    return;
+  }
+  // recalcular estado según recepciones actuales
+  var conRec=its.some(function(r){return recibidoDe(r.item)>0;});
+  var todosCompletos=its.every(function(r){return restaDe(r.item)<=0;});
+  if(todosCompletos){
+    o.estado='Recibido';
+    if(!o.fechaRecepcion) o.fechaRecepcion=tod();
+    its.forEach(function(r){r.item.estado='Recibido';});
+  }else if(conRec){
+    o.estado='Parcial';
+  }
+  // (si el estado era OC emitida o En tránsito, se conserva)
+
+  editOCQuitar={}; editOCAgregar={};
+  saveDB(); closeMo('mo-edit-oc');
+  renderOrdenes(); renderPedidos();
+  toast('OC actualizada');
+}
+
+// ==================== ELIMINAR OC ====================
+function openEliminarOC(ocId){
+  if(!puede('comprar')){toast('No tenés permiso para eliminar OC');return;}
+  var o=DB.ordenes.find(function(x){return x.id===ocId;}); if(!o)return;
+  el('del-oc-id').value=ocId;
+  var its=ocItems(o);
+  var conRec=its.filter(function(r){return recibidoDe(r.item)>0;}).length;
+  var info='Vas a eliminar la OC <b>'+esc(o.num||'')+'</b> · '+esc(o.proveedor||'')+' · '+its.length+' ítems.';
+  if(conRec) info+='<br><b>⚠ '+conRec+' ítem(s) tienen recepciones parciales</b>. Se guardarán en un histórico aparte.';
+  el('del-oc-info').innerHTML=info;
+  // Render de items con opción por cada uno
+  var box=el('del-oc-items');
+  if(!its.length){
+    box.innerHTML='<div class="muted" style="padding:14px;text-align:center">La OC no tiene ítems.</div>';
+  }else{
+    box.innerHTML=its.map(function(r){
+      var it=r.item; var rec=recibidoDe(it);
+      var idKey=r.ped.id+'::'+it.id;
+      var recTxt=rec>0?'<span style="color:var(--amber);font-size:11px;font-weight:600">Recibido: '+rec+'/'+it.cant+'</span>':'';
+      return '<div style="padding:10px 12px;border-bottom:1px solid var(--brd)">'+
+        '<div style="font-size:13px;margin-bottom:6px"><span class="codigo">'+esc(it.codigo)+'</span> '+esc(it.marca||'')+' · '+it.cant+' '+esc(it.unidad||'un')+' · <span class="muted">Pedido '+esc(r.ped.num||'')+'</span> '+recTxt+'</div>'+
+        '<div style="display:flex;gap:12px;font-size:12.5px">'+
+          '<label style="cursor:pointer;display:flex;gap:6px;align-items:center"><input type="radio" name="del-'+idKey+'" value="volver" checked> Volver a "Pendiente" (para comprar de nuevo)</label>'+
+          '<label style="cursor:pointer;display:flex;gap:6px;align-items:center"><input type="radio" name="del-'+idKey+'" value="descartar"> Descartar del sistema</label>'+
+        '</div>'+
+        '</div>';
+    }).join('');
+  }
+  openMo('mo-del-oc');
+}
+function confirmarEliminarOC(){
+  if(!puede('comprar')){toast('No tenés permiso');return;}
+  var o=DB.ordenes.find(function(x){return x.id===el('del-oc-id').value;}); if(!o)return;
+  if(!confirm('¿Confirmás eliminar la OC '+(o.num||'')+' definitivamente?')) return;
+
+  DB.ocsHistoricoRecepciones = DB.ocsHistoricoRecepciones || [];
+  DB.ocsEliminadas = DB.ocsEliminadas || [];
+
+  var its=ocItems(o);
+  var descartados=0, vueltos=0;
+
+  its.forEach(function(r){
+    var it=r.item;
+    var idKey=r.ped.id+'::'+it.id;
+    var radios=document.getElementsByName('del-'+idKey);
+    var accion='volver';
+    for(var i=0;i<radios.length;i++){ if(radios[i].checked){accion=radios[i].value;break;} }
+    // guardar historial de recepciones si las tenía
+    if((it.recepciones||[]).length){
+      DB.ocsHistoricoRecepciones.push({ocNum:o.num,ocId:o.id,ped:r.ped.num,codigo:it.codigo,recepciones:it.recepciones.slice(),cantidadOriginal:it.cant,fecha:tod(),motivo:'OC eliminada'});
+    }
+    if(accion==='descartar'){
+      // sacar el ítem del pedido
+      r.ped.items=(r.ped.items||[]).filter(function(x){return x.id!==it.id;});
+      descartados++;
+    }else{
+      // volver a Pendiente
+      it.estado='Pendiente';
+      delete it.ocId;
+      it.recibido=0;
+      it.recepciones=[];
+      vueltos++;
+    }
+  });
+
+  // guardar la OC en historial de eliminadas
+  DB.ocsEliminadas.push({num:o.num,proveedor:o.proveedor,fecha:o.fecha,estado:o.estado,eliminadaEl:tod(),eliminadaPor:sesion||''});
+  // sacar la OC
+  DB.ordenes=DB.ordenes.filter(function(x){return x.id!==o.id;});
+
+  saveDB();
+  closeMo('mo-del-oc');
+  renderOrdenes(); renderPedidos();
+  toast('OC '+(o.num||'')+' eliminada · '+vueltos+' vueltos a pendiente'+(descartados?', '+descartados+' descartados':''));
 }
 
 // ===== HISTORIAL =====
@@ -1804,13 +2117,26 @@ function exportReporteProveedorExcel(provEnc){
   if(!d.pendientes.length && !d.recibidas.length){toast('El proveedor no tiene OC');return;}
   var wb=XLSX.utils.book_new();
 
+  // ==== ARMAR LISTADO UNIFICADO: solo ítems con falta > 0 ====
+  var itsFaltantes=[];
+  d.pendientes.forEach(function(o){
+    ocItems(o).forEach(function(r){
+      if(restaDe(r.item)>0) itsFaltantes.push({oc:o, item:r.item, ped:r.ped});
+    });
+  });
+  // ordenamos por N° OC y luego código
+  itsFaltantes.sort(function(a,b){
+    var oc=(a.oc.num||'').localeCompare(b.oc.num||''); if(oc)return oc;
+    return (a.item.codigo||'').localeCompare(b.item.codigo||'');
+  });
+
+  var totalFalta=itsFaltantes.reduce(function(a,r){return a+restaDe(r.item);},0);
+  var totalRecibParc=itsFaltantes.reduce(function(a,r){return a+recibidoDe(r.item);},0);
+  var ocsPendUniq={}; itsFaltantes.forEach(function(r){ocsPendUniq[r.oc.id]=1;});
+
   // ==== HOJA RESUMEN ====
-  var itsPend=[]; d.pendientes.forEach(function(o){itsPend=itsPend.concat(ocItems(o));});
   var itsRec=[]; d.recibidas.forEach(function(o){itsRec=itsRec.concat(ocItems(o));});
-  var uniPend=itsPend.reduce(function(a,r){return a+(r.item.cant||0);},0);
   var uniRec=itsRec.reduce(function(a,r){return a+(r.item.cant||0);},0);
-  var restaPend=itsPend.reduce(function(a,r){return a+restaDe(r.item);},0);
-  var recibPend=itsPend.reduce(function(a,r){return a+recibidoDe(r.item);},0);
   var estCount={'OC emitida':0,'En tránsito':0,'Parcial':0};
   d.pendientes.forEach(function(o){if(estCount[o.estado]!=null)estCount[o.estado]++;});
 
@@ -1818,58 +2144,30 @@ function exportReporteProveedorExcel(provEnc){
     ['REPORTE DE PROVEEDOR'],[prov],
     ['Generado: '+new Date().toLocaleString('es-AR')],[],
     ['PENDIENTES DE RECIBIR',''],
+    ['OC involucradas',Object.keys(ocsPendUniq).length],
+    ['Ítems por recibir',itsFaltantes.length],
+    ['Ya recibido parcialmente',totalRecibParc+' unidades'],
+    ['Falta recibir',totalFalta+' unidades'],
+    [],
+    ['DESGLOSE POR ESTADO DE OC',''],
     ['OC emitidas (sin entregar)',estCount['OC emitida']],
     ['En tránsito',estCount['En tránsito']],
-    ['Con entrega parcial',estCount['Parcial']],
-    ['Total OC pendientes',d.pendientes.length],
-    ['Total ítems pendientes',itsPend.length],
-    ['Unidades pedidas (pendientes)',uniPend],
-    ['Unidades ya recibidas (parcial)',recibPend],
-    ['Unidades por recibir',restaPend],
-    [],
-    ['HISTÓRICO YA RECIBIDO',''],
-    ['OC recibidas históricas',d.recibidas.length],
-    ['Total ítems recibidos',itsRec.length],
-    ['Total unidades recibidas',uniRec]
+    ['Con entrega parcial',estCount['Parcial']]
   ];
   var wsR=XLSX.utils.aoa_to_sheet(resumen);
-  wsR['!cols']=[{wch:34},{wch:16}];
+  wsR['!cols']=[{wch:34},{wch:18}];
   XLSX.utils.book_append_sheet(wb,wsR,'Resumen');
 
-  var headersPend=['N° OC','Fecha OC','Estado','Código','Marca','Descripción','Pedido','Cantidad','Unidad','Recibido','Por recibir','Destino','Sucursal','Notas OC','Notas seg.'];
-  var headersRec=['N° OC','Fecha OC','Recibido el','Código','Marca','Descripción','Pedido','Cantidad','Unidad','Destino','Sucursal','Notas OC','Notas seg.'];
-
-  // ==== HOJAS POR ESTADO PENDIENTE ====
-  ['OC emitida','En tránsito','Parcial'].forEach(function(est){
-    var ocsEst=d.pendientes.filter(function(o){return o.estado===est;});
-    if(!ocsEst.length)return;
-    var filas=[];
-    ocsEst.forEach(function(o){
-      ocItems(o).forEach(function(r){
-        var it=r.item;
-        filas.push([o.num||'',o.fecha||'',o.estado||'',it.codigo||'',it.marca||'',it.desc||'',r.ped.num||'',it.cant,it.unidad||'un',recibidoDe(it),restaDe(it),(it.destino==='cliente'?(it.cliente||'Cliente'):'Stock'),sucLabel(it.sucursal),o.notas||'',o.segNotas||'']);
-      });
-    });
-    var rows=[[est+' · '+prov],[],headersPend].concat(filas);
-    var ws=XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols']=[{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:26},{wch:10},{wch:10},{wch:8},{wch:10},{wch:12},{wch:14},{wch:14},{wch:22},{wch:22}];
-    XLSX.utils.book_append_sheet(wb,ws,est.substring(0,31).replace(/[\\/*?:\[\]]/g,'_'));
+  // ==== HOJA UNIFICADA: ítems por recibir ====
+  var headersPend=['N° OC','Fecha OC','Estado OC','Código','Marca','Descripción','Pedido','Cantidad','Unidad','Recibido','Falta','Destino','Sucursal','Notas OC','Notas seg.'];
+  var filas=itsFaltantes.map(function(r){
+    var it=r.item, o=r.oc;
+    return [o.num||'',o.fecha||'',o.estado||'',it.codigo||'',it.marca||'',it.desc||'',r.ped.num||'',it.cant,it.unidad||'un',recibidoDe(it),restaDe(it),(it.destino==='cliente'?(it.cliente||'Cliente'):'Stock'),sucLabel(it.sucursal),o.notas||'',o.segNotas||''];
   });
-
-  // ==== HOJA RECIBIDAS ====
-  if(d.recibidas.length){
-    var filasR=[];
-    d.recibidas.forEach(function(o){
-      ocItems(o).forEach(function(r){
-        var it=r.item;
-        filasR.push([o.num||'',o.fecha||'',o.fechaRecepcion||'',it.codigo||'',it.marca||'',it.desc||'',r.ped.num||'',it.cant,it.unidad||'un',(it.destino==='cliente'?(it.cliente||'Cliente'):'Stock'),sucLabel(it.sucursal),o.notas||'',o.segNotas||'']);
-      });
-    });
-    var rowsR=[['Recibidas · '+prov],[],headersRec].concat(filasR);
-    var wsR2=XLSX.utils.aoa_to_sheet(rowsR);
-    wsR2['!cols']=[{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:26},{wch:10},{wch:10},{wch:8},{wch:14},{wch:14},{wch:22},{wch:22}];
-    XLSX.utils.book_append_sheet(wb,wsR2,'Recibidas');
-  }
+  var rowsU=[['Pendientes de recibir · '+prov],[itsFaltantes.length+' ítems · '+totalFalta+' unidades por recibir'],[],headersPend].concat(filas);
+  var wsU=XLSX.utils.aoa_to_sheet(rowsU);
+  wsU['!cols']=[{wch:12},{wch:12},{wch:14},{wch:14},{wch:14},{wch:28},{wch:10},{wch:10},{wch:8},{wch:10},{wch:10},{wch:14},{wch:14},{wch:22},{wch:22}];
+  XLSX.utils.book_append_sheet(wb,wsU,'Pendientes de recibir');
 
   XLSX.writeFile(wb,'reporte_'+prov.replace(/[^\w]/g,'_')+'_'+tod()+'.xlsx');
   toast('Reporte de '+prov+' exportado');
@@ -1883,9 +2181,23 @@ function exportReporteProveedorPDF(provEnc){
   if(!d.pendientes.length && !d.recibidas.length){toast('El proveedor no tiene OC');return;}
   var doc=new J('l','mm','a4');
 
-  var itsPend=[]; d.pendientes.forEach(function(o){itsPend=itsPend.concat(ocItems(o));});
+  // ==== ARMAR LISTADO UNIFICADO: solo ítems con falta > 0 ====
+  var itsFaltantes=[];
+  d.pendientes.forEach(function(o){
+    ocItems(o).forEach(function(r){
+      if(restaDe(r.item)>0) itsFaltantes.push({oc:o, item:r.item, ped:r.ped});
+    });
+  });
+  itsFaltantes.sort(function(a,b){
+    var oc=(a.oc.num||'').localeCompare(b.oc.num||''); if(oc)return oc;
+    return (a.item.codigo||'').localeCompare(b.item.codigo||'');
+  });
+  var totalFalta=itsFaltantes.reduce(function(a,r){return a+restaDe(r.item);},0);
+  var totalRecibParc=itsFaltantes.reduce(function(a,r){return a+recibidoDe(r.item);},0);
+  var ocsPendUniq={}; itsFaltantes.forEach(function(r){ocsPendUniq[r.oc.id]=1;});
   var itsRec=[]; d.recibidas.forEach(function(o){itsRec=itsRec.concat(ocItems(o));});
-  var restaPend=itsPend.reduce(function(a,r){return a+restaDe(r.item);},0);
+  var estCount={'OC emitida':0,'En tránsito':0,'Parcial':0};
+  d.pendientes.forEach(function(o){if(estCount[o.estado]!=null)estCount[o.estado]++;});
 
   // ==== PORTADA / RESUMEN ====
   doc.setFontSize(18); doc.setTextColor(37,99,235);
@@ -1893,74 +2205,41 @@ function exportReporteProveedorPDF(provEnc){
   doc.setFontSize(9); doc.setTextColor(120,120,120);
   doc.text('Generado: '+new Date().toLocaleString('es-AR'), 14, 22);
 
-  var estCount={'OC emitida':0,'En tránsito':0,'Parcial':0};
-  d.pendientes.forEach(function(o){if(estCount[o.estado]!=null)estCount[o.estado]++;});
-
   doc.autoTable({
     startY:30,
     head:[['Resumen','Cantidad']],
     body:[
-      ['OC emitidas (sin entregar)', estCount['OC emitida']],
-      ['En tránsito', estCount['En tránsito']],
-      ['Con entrega parcial', estCount['Parcial']],
-      ['Total OC pendientes', d.pendientes.length],
-      ['Total ítems pendientes', itsPend.length],
-      ['Unidades por recibir', restaPend],
-      ['OC ya recibidas (histórico)', d.recibidas.length],
-      ['Ítems históricos recibidos', itsRec.length]
+      ['OC involucradas', Object.keys(ocsPendUniq).length],
+      ['Ítems por recibir', itsFaltantes.length],
+      ['Ya recibido parcialmente', totalRecibParc+' unidades'],
+      ['Falta recibir', totalFalta+' unidades'],
+      ['Desglose · OC emitidas (sin entregar)', estCount['OC emitida']],
+      ['Desglose · En tránsito', estCount['En tránsito']],
+      ['Desglose · Con entrega parcial', estCount['Parcial']]
     ],
     styles:{fontSize:10}, headStyles:{fillColor:[37,99,235]},
     columnStyles:{1:{halign:'right',cellWidth:40}},
     margin:{left:14, right:14}
   });
 
-  var headers=[['N° OC','Fecha','Estado','Cód.','Descripción','Ped.','Cant.','Rec.','Falta','Suc.']];
-  function toRow(o,r){
-    var it=r.item;
-    return [o.num||'', o.fecha||'', o.estado||'', it.codigo||'', (it.marca?it.marca+' ':'')+(it.desc||''), r.ped.num||'', it.cant+' '+(it.unidad||'un'), recibidoDe(it), restaDe(it), sucLabel(it.sucursal)];
-  }
-
-  // ==== POR ESTADO PENDIENTE ====
-  var estColors={'OC emitida':[37,99,235],'En tránsito':[139,92,246],'Parcial':[245,158,11]};
-  ['OC emitida','En tránsito','Parcial'].forEach(function(est){
-    var ocsEst=d.pendientes.filter(function(o){return o.estado===est;});
-    if(!ocsEst.length)return;
+  // ==== LISTADO UNIFICADO DE ÍTEMS POR RECIBIR ====
+  if(itsFaltantes.length){
     doc.addPage();
-    var color=estColors[est]||[37,99,235];
-    doc.setFontSize(15); doc.setTextColor(color[0],color[1],color[2]);
-    doc.text(est+' · '+prov, 14, 14);
+    doc.setFontSize(15); doc.setTextColor(37,99,235);
+    doc.text('Pendientes de recibir · '+prov, 14, 14);
     doc.setFontSize(9); doc.setTextColor(120,120,120);
-    doc.text(ocsEst.length+' OC · '+ocsEst.reduce(function(a,o){return a+ocItems(o).length;},0)+' ítems', 14, 20);
-    var body=[];
-    ocsEst.forEach(function(o){ ocItems(o).forEach(function(r){ body.push(toRow(o,r)); }); });
+    doc.text(itsFaltantes.length+' ítems · '+totalFalta+' unidades por recibir', 14, 20);
+    var headers=[['N° OC','Fecha','Estado','Cód.','Descripción','Ped.','Cant.','Rec.','Falta','Destino','Suc.']];
+    var body=itsFaltantes.map(function(r){
+      var it=r.item, o=r.oc;
+      return [o.num||'', o.fecha||'', o.estado||'', it.codigo||'', (it.marca?it.marca+' ':'')+(it.desc||''), r.ped.num||'', it.cant+' '+(it.unidad||'un'), recibidoDe(it), restaDe(it), (it.destino==='cliente'?(it.cliente||'Cliente'):'Stock'), sucLabel(it.sucursal)];
+    });
     doc.autoTable({
       startY:26, head:headers, body:body,
       styles:{fontSize:8, cellPadding:2},
-      headStyles:{fillColor:color, textColor:255, fontSize:8},
-      alternateRowStyles:{fillColor:[248,249,251]}
-    });
-  });
-
-  // ==== RECIBIDAS ====
-  if(d.recibidas.length){
-    doc.addPage();
-    doc.setFontSize(15); doc.setTextColor(22,163,74);
-    doc.text('Recibidas · '+prov, 14, 14);
-    doc.setFontSize(9); doc.setTextColor(120,120,120);
-    doc.text(d.recibidas.length+' OC recibidas', 14, 20);
-    var headersRec=[['N° OC','Fecha OC','Recibido el','Cód.','Descripción','Ped.','Cant.','Suc.']];
-    var body=[];
-    d.recibidas.forEach(function(o){
-      ocItems(o).forEach(function(r){
-        var it=r.item;
-        body.push([o.num||'',o.fecha||'',fmtD(o.fechaRecepcion),it.codigo||'',(it.marca?it.marca+' ':'')+(it.desc||''),r.ped.num||'',it.cant+' '+(it.unidad||'un'),sucLabel(it.sucursal)]);
-      });
-    });
-    doc.autoTable({
-      startY:26, head:headersRec, body:body,
-      styles:{fontSize:8, cellPadding:2},
-      headStyles:{fillColor:[22,163,74], textColor:255, fontSize:8},
-      alternateRowStyles:{fillColor:[240,253,244]}
+      headStyles:{fillColor:[37,99,235], textColor:255, fontSize:8},
+      alternateRowStyles:{fillColor:[248,249,251]},
+      columnStyles:{8:{halign:'right',fontStyle:'bold'}}
     });
   }
 
